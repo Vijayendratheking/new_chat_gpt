@@ -523,6 +523,46 @@ body {
   color: #64748B;
 }
 
+/* Upload mode toggle */
+.upload-mode-toggle {
+  display: flex;
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+}
+
+.mode-btn {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 8px 20px;
+  border: none;
+  background: var(--bg-primary);
+  cursor: pointer;
+  color: var(--fg-muted);
+  transition: background-color 150ms, color 150ms;
+  border-right: 1px solid var(--border-color);
+}
+
+.mode-btn:last-child {
+  border-right: none;
+}
+
+.mode-btn:hover {
+  background: var(--bg-hover);
+}
+
+.mode-btn.active {
+  background: var(--fg-primary);
+  color: var(--bg-primary);
+}
+
+/* File hint */
+.file-hint {
+  font-size: 11px;
+  color: var(--fg-muted);
+  line-height: 1.4;
+}
+
 /* Pagination */
 .pagination {
   display: flex;

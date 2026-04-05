@@ -205,7 +205,7 @@ class CrossSkillSchedulerTester:
         return success
 
     def test_excel_upload(self):
-        """Test Excel file upload functionality"""
+        """Test Excel file upload functionality (separate files)"""
         # Create a simple test Excel file
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -232,7 +232,7 @@ class CrossSkillSchedulerTester:
         files = {'english_file': ('test_english.xlsx', excel_buffer.getvalue(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
         
         success, response = self.run_test(
-            "Excel File Upload",
+            "Excel File Upload (Separate Files)",
             "POST",
             "run-schedule",
             200,
@@ -247,6 +247,94 @@ class CrossSkillSchedulerTester:
                 print("   ✓ Excel upload processed successfully")
                 self.schedule_id = response['id']  # Update schedule ID for export tests
                 return True
+            else:
+                print(f"   ❌ Missing keys in response: {missing_keys}")
+                return False
+        return success
+
+    def test_multi_sheet_excel_upload(self):
+        """Test multi-sheet Excel file upload functionality (combined_file)"""
+        # Create a multi-sheet Excel file with English and Language sheets
+        wb = openpyxl.Workbook()
+        
+        # Remove default sheet
+        wb.remove(wb.active)
+        
+        # Create English sheet
+        ws_eng = wb.create_sheet("English")
+        ws_eng['A1'] = 'Interval'
+        ws_eng['B1'] = 'Monday'
+        ws_eng['C1'] = 'Tuesday'
+        ws_eng['D1'] = 'Wednesday'
+        ws_eng['E1'] = 'Thursday'
+        ws_eng['F1'] = 'Friday'
+        ws_eng['G1'] = 'Saturday'
+        ws_eng['H1'] = 'Sunday'
+        
+        # Add some test data for English
+        for i, hour in enumerate(['00:00', '01:00', '02:00', '03:00']):
+            ws_eng[f'A{i+2}'] = hour
+            for j, day_val in enumerate([7, 4, 3, 3, 3, 3, 3]):  # Sample values
+                ws_eng.cell(row=i+2, column=j+2, value=day_val)
+        
+        # Create Language sheet
+        ws_lang = wb.create_sheet("Language")
+        ws_lang['A1'] = 'Interval'
+        ws_lang['B1'] = 'Monday'
+        ws_lang['C1'] = 'Tuesday'
+        ws_lang['D1'] = 'Wednesday'
+        ws_lang['E1'] = 'Thursday'
+        ws_lang['F1'] = 'Friday'
+        ws_lang['G1'] = 'Saturday'
+        ws_lang['H1'] = 'Sunday'
+        
+        # Add some test data for Language
+        for i, hour in enumerate(['00:00', '01:00', '02:00', '03:00']):
+            ws_lang[f'A{i+2}'] = hour
+            for j, day_val in enumerate([0, 0, 0, 0, 0, 0, 0]):  # Sample values
+                ws_lang.cell(row=i+2, column=j+2, value=day_val)
+        
+        # Save to bytes
+        excel_buffer = io.BytesIO()
+        wb.save(excel_buffer)
+        excel_buffer.seek(0)
+        
+        files = {'combined_file': ('test_combined.xlsx', excel_buffer.getvalue(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
+        
+        success, response = self.run_test(
+            "Multi-Sheet Excel Upload (Combined File)",
+            "POST",
+            "run-schedule",
+            200,
+            files=files
+        )
+        
+        if success:
+            # Validate response structure
+            required_keys = ['id', 'shiftwise', 'gap_analysis', 'roster', 'sla', 'summary']
+            missing_keys = [key for key in required_keys if key not in response]
+            if not missing_keys:
+                print("   ✓ Multi-sheet Excel upload processed successfully")
+                self.schedule_id = response['id']  # Update schedule ID for export tests
+                
+                # Validate that both English and Language data was processed
+                summary = response['summary']
+                if summary.get('total_agents') == 212:
+                    print("   ✓ Correct total agents (212)")
+                else:
+                    print(f"   ❌ Expected 212 agents, got {summary.get('total_agents')}")
+                
+                # Check that we have both English and Language shifts
+                shiftwise = response['shiftwise']
+                english_shifts = [row for row in shiftwise if row.get('project') == 'English' and not row.get('shift_id', '').endswith('_TOTAL')]
+                language_shifts = [row for row in shiftwise if row.get('project') == 'Language' and not row.get('shift_id', '').endswith('_TOTAL')]
+                
+                if len(english_shifts) == 9 and len(language_shifts) == 5:
+                    print("   ✓ Both English (9) and Language (5) shifts processed from multi-sheet file")
+                    return True
+                else:
+                    print(f"   ❌ Expected 9 English + 5 Language shifts, got {len(english_shifts)} + {len(language_shifts)}")
+                    return False
             else:
                 print(f"   ❌ Missing keys in response: {missing_keys}")
                 return False
@@ -349,6 +437,7 @@ def main():
         tester.test_sample_template,
         tester.test_run_schedule_default,
         tester.test_excel_upload,
+        tester.test_multi_sheet_excel_upload,
         tester.test_project_specific_shifts,
         tester.test_list_schedules,
         tester.test_get_schedule,

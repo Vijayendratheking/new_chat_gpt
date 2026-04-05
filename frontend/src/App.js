@@ -15,8 +15,10 @@ const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"
 const DAYS_SHORT = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function App() {
+  const [combinedFile, setCombinedFile] = useState(null);
   const [englishFile, setEnglishFile] = useState(null);
   const [languageFile, setLanguageFile] = useState(null);
+  const [uploadMode, setUploadMode] = useState("combined"); // "combined" or "separate"
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [activeTab, setActiveTab] = useState("shiftwise");
@@ -30,8 +32,12 @@ function App() {
     setLoading(true);
     try {
       const formData = new FormData();
-      if (englishFile) formData.append("english_file", englishFile);
-      if (languageFile) formData.append("language_file", languageFile);
+      if (uploadMode === "combined" && combinedFile) {
+        formData.append("combined_file", combinedFile);
+      } else {
+        if (englishFile) formData.append("english_file", englishFile);
+        if (languageFile) formData.append("language_file", languageFile);
+      }
       const resp = await axios.post(`${API}/run-schedule`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -43,7 +49,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [englishFile, languageFile]);
+  }, [uploadMode, combinedFile, englishFile, languageFile]);
 
   const downloadTemplate = () => {
     window.open(`${API}/sample-template`, "_blank");
@@ -139,30 +145,63 @@ function App() {
             <FileXls size={16} weight="bold" /> Download Sample Template (.xlsx)
           </button>
 
-          <div className="upload-grid">
-            <div className="file-input-group">
-              <label htmlFor="english-file">English Requirements</label>
-              <input
-                data-testid="english-file-input"
-                id="english-file"
-                type="file"
-                accept=".xlsx,.csv"
-                onChange={e => setEnglishFile(e.target.files[0])}
-              />
-              {englishFile && <span style={{ fontSize: 12, color: "#00C853" }}>{englishFile.name}</span>}
-            </div>
-            <div className="file-input-group">
-              <label htmlFor="language-file">Language Requirements</label>
-              <input
-                data-testid="language-file-input"
-                id="language-file"
-                type="file"
-                accept=".xlsx,.csv"
-                onChange={e => setLanguageFile(e.target.files[0])}
-              />
-              {languageFile && <span style={{ fontSize: 12, color: "#00C853" }}>{languageFile.name}</span>}
-            </div>
+          {/* Upload Mode Toggle */}
+          <div className="upload-mode-toggle" data-testid="upload-mode-toggle">
+            <button
+              data-testid="mode-combined-btn"
+              className={`mode-btn ${uploadMode === "combined" ? "active" : ""}`}
+              onClick={() => setUploadMode("combined")}
+            >
+              Single File (2 sheets)
+            </button>
+            <button
+              data-testid="mode-separate-btn"
+              className={`mode-btn ${uploadMode === "separate" ? "active" : ""}`}
+              onClick={() => setUploadMode("separate")}
+            >
+              Separate Files
+            </button>
           </div>
+
+          {uploadMode === "combined" ? (
+            <div className="file-input-group" style={{ width: "100%", maxWidth: 480 }}>
+              <label htmlFor="combined-file">Combined Excel (sheets: English & Language)</label>
+              <input
+                data-testid="combined-file-input"
+                id="combined-file"
+                type="file"
+                accept=".xlsx"
+                onChange={e => setCombinedFile(e.target.files[0])}
+              />
+              {combinedFile && <span style={{ fontSize: 12, color: "#00C853" }}>{combinedFile.name}</span>}
+              <span className="file-hint">Upload a single .xlsx file with an "English" sheet and a "Language" sheet — just like the template</span>
+            </div>
+          ) : (
+            <div className="upload-grid">
+              <div className="file-input-group">
+                <label htmlFor="english-file">English Requirements</label>
+                <input
+                  data-testid="english-file-input"
+                  id="english-file"
+                  type="file"
+                  accept=".xlsx,.csv"
+                  onChange={e => setEnglishFile(e.target.files[0])}
+                />
+                {englishFile && <span style={{ fontSize: 12, color: "#00C853" }}>{englishFile.name}</span>}
+              </div>
+              <div className="file-input-group">
+                <label htmlFor="language-file">Language Requirements</label>
+                <input
+                  data-testid="language-file-input"
+                  id="language-file"
+                  type="file"
+                  accept=".xlsx,.csv"
+                  onChange={e => setLanguageFile(e.target.files[0])}
+                />
+                {languageFile && <span style={{ fontSize: 12, color: "#00C853" }}>{languageFile.name}</span>}
+              </div>
+            </div>
+          )}
 
           <button
             data-testid="run-schedule-btn"
@@ -173,7 +212,10 @@ function App() {
             <Play size={16} weight="bold" />
             {loading ? "Computing Schedule..." : "Run Greedy Scheduler"}
           </button>
-          {(!englishFile && !languageFile) && (
+          {uploadMode === "combined" && !combinedFile && (
+            <span style={{ fontSize: 12, color: "#64748B" }}>No file selected — will use default requirement data</span>
+          )}
+          {uploadMode === "separate" && !englishFile && !languageFile && (
             <span style={{ fontSize: 12, color: "#64748B" }}>No files selected — will use default requirement data</span>
           )}
         </div>

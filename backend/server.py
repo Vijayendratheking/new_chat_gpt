@@ -178,20 +178,86 @@ async def download_sample_template():
     )
 
 
+def parse_multi_sheet_excel(content: bytes):
+    """Parse a multi-sheet Excel file. Returns (english_dict, language_dict).
+    Looks for sheets named 'English' and 'Language' (case-insensitive)."""
+    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    sheet_map = {s.lower(): s for s in wb.sheetnames}
+
+    eng_data = None
+    lang_data = None
+
+    for key, actual in sheet_map.items():
+        if "english" in key or "eng" in key:
+            eng_data = _parse_sheet(wb[actual])
+        elif "language" in key or "lang" in key:
+            lang_data = _parse_sheet(wb[actual])
+
+    # If we couldn't match by name, use first two sheets
+    if eng_data is None and lang_data is None and len(wb.sheetnames) >= 2:
+        eng_data = _parse_sheet(wb[wb.sheetnames[0]])
+        lang_data = _parse_sheet(wb[wb.sheetnames[1]])
+    elif eng_data is None and lang_data is None and len(wb.sheetnames) == 1:
+        eng_data = _parse_sheet(wb[wb.sheetnames[0]])
+
+    return eng_data, lang_data
+
+
+def _parse_sheet(ws) -> dict:
+    """Parse a single worksheet into {day: {hour: value}}."""
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return {}
+    header_idx = 0
+    for i, row in enumerate(rows):
+        cells = [str(c).strip().lower() if c else "" for c in row]
+        if "interval" in cells:
+            header_idx = i
+            break
+    headers = [str(h).strip() if h else "" for h in rows[header_idx]]
+    result = {d: {} for d in DAYS}
+    for row in rows[header_idx + 1:]:
+        interval = str(row[0]).strip() if row[0] is not None else ""
+        if not interval or ":" not in interval:
+            continue
+        for day in DAYS:
+            if day in headers:
+                day_col = headers.index(day)
+                val = row[day_col] if day_col < len(row) else 0
+                try:
+                    result[day][interval] = float(val) if val is not None else 0
+                except (ValueError, TypeError):
+                    result[day][interval] = 0
+    return result
+
+
 @api_router.post("/run-schedule")
 async def run_schedule_endpoint(
+    combined_file: Optional[UploadFile] = File(None),
     english_file: Optional[UploadFile] = File(None),
     language_file: Optional[UploadFile] = File(None),
 ):
-    """Run the scheduling algorithm. Accepts .xlsx or .csv. Uses defaults if no files."""
+    """Run the scheduling algorithm.
+    - combined_file: Single .xlsx with 'English' and 'Language' sheets
+    - english_file / language_file: Separate files (.xlsx or .csv)
+    - Falls back to defaults if nothing uploaded.
+    """
+    english_data = None
+    language_data = None
+
+    # Priority 1: Combined multi-sheet file
+    if combined_file and combined_file.filename:
+        combo_bytes = await combined_file.read()
+        if combined_file.filename.endswith(".xlsx"):
+            english_data, language_data = parse_multi_sheet_excel(combo_bytes)
+
+    # Priority 2: Individual files (override anything not found above)
     if english_file and english_file.filename:
         eng_bytes = await english_file.read()
         if english_file.filename.endswith(".xlsx"):
             english_data = parse_excel_to_dict(eng_bytes)
         else:
             english_data = parse_csv_to_dict(eng_bytes.decode("utf-8"))
-    else:
-        english_data = DEFAULT_ENGLISH
 
     if language_file and language_file.filename:
         lang_bytes = await language_file.read()
@@ -199,7 +265,11 @@ async def run_schedule_endpoint(
             language_data = parse_excel_to_dict(lang_bytes)
         else:
             language_data = parse_csv_to_dict(lang_bytes.decode("utf-8"))
-    else:
+
+    # Fallback to defaults
+    if not english_data:
+        english_data = DEFAULT_ENGLISH
+    if not language_data:
         language_data = DEFAULT_LANGUAGE
 
     result = run_scheduler(english_data, language_data)
