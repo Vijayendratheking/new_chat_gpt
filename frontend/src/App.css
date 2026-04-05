@@ -135,8 +135,7 @@ body {
   font-family: 'IBM Plex Sans', sans-serif;
   font-weight: 600;
   font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.02em;
   padding: 10px 24px;
   border: none;
   cursor: pointer;
