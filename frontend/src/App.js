@@ -7,8 +7,9 @@ import {
 } from "recharts";
 import {
   Upload, Play, DownloadSimple, Table, ChartBar, Users, Gauge,
-  CaretLeft, CaretRight, MagnifyingGlass, ArrowsClockwise, FileXls,
+  CaretLeft, CaretRight, MagnifyingGlass, ArrowsClockwise, FileXls, Scales,
 } from "@phosphor-icons/react";
+import ScenarioComparison from "./components/ScenarioComparison";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -262,6 +263,7 @@ function App() {
                 { id: "gap", label: "Gap Dashboard", icon: <ChartBar size={14} /> },
                 { id: "roster", label: "Agent Roster", icon: <Users size={14} /> },
                 { id: "sla", label: "SLA Analysis", icon: <Gauge size={14} /> },
+                { id: "compare", label: "Compare", icon: <Scales size={14} /> },
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -581,6 +583,11 @@ function App() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* === COMPARE TAB === */}
+            {activeTab === "compare" && (
+              <ScenarioComparison />
             )}
 
             {/* Re-run */}

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, UploadFile, File
+from fastapi import FastAPI, APIRouter, UploadFile, File, Body
 from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
@@ -6,8 +6,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import io
+import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 import uuid
 from datetime import datetime, timezone
 import openpyxl
@@ -277,9 +278,11 @@ async def run_schedule_endpoint(
     schedule_id = str(uuid.uuid4())
     doc = {
         "id": schedule_id,
+        "name": "Default Schedule",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "english_input": english_data,
         "language_input": language_data,
+        "off_day_profiles": [{"off_days": p["off_days"], "count": p["count"]} for p in DEFAULT_OFF_DAY_PROFILES],
         "shiftwise": result["shiftwise"],
         "gap_analysis": result["gap_analysis"],
         "roster": result["roster"],
@@ -290,12 +293,118 @@ async def run_schedule_endpoint(
 
     return {
         "id": schedule_id,
+        "name": "Default Schedule",
         "shiftwise": result["shiftwise"],
         "gap_analysis": result["gap_analysis"],
         "roster": result["roster"],
         "sla": result["sla"],
         "summary": result["summary"],
     }
+
+
+@api_router.post("/run-scenario")
+async def run_scenario_endpoint(
+    name: str = Body("Scenario"),
+    off_day_profiles: str = Body(None),
+    combined_file: Optional[UploadFile] = File(None),
+    english_file: Optional[UploadFile] = File(None),
+    language_file: Optional[UploadFile] = File(None),
+):
+    """Run a named scenario with custom off-day profiles."""
+    english_data = None
+    language_data = None
+
+    if combined_file and combined_file.filename:
+        combo_bytes = await combined_file.read()
+        if combined_file.filename.endswith(".xlsx"):
+            english_data, language_data = parse_multi_sheet_excel(combo_bytes)
+
+    if english_file and english_file.filename:
+        eng_bytes = await english_file.read()
+        if english_file.filename.endswith(".xlsx"):
+            english_data = parse_excel_to_dict(eng_bytes)
+        else:
+            english_data = parse_csv_to_dict(eng_bytes.decode("utf-8"))
+
+    if language_file and language_file.filename:
+        lang_bytes = await language_file.read()
+        if language_file.filename.endswith(".xlsx"):
+            language_data = parse_excel_to_dict(lang_bytes)
+        else:
+            language_data = parse_csv_to_dict(lang_bytes.decode("utf-8"))
+
+    if not english_data:
+        english_data = DEFAULT_ENGLISH
+    if not language_data:
+        language_data = DEFAULT_LANGUAGE
+
+    # Parse custom off-day profiles
+    profiles = None
+    if off_day_profiles:
+        try:
+            profiles = json.loads(off_day_profiles)
+        except (json.JSONDecodeError, TypeError):
+            profiles = None
+
+    result = run_scheduler(english_data, language_data, off_day_profiles=profiles)
+
+    schedule_id = str(uuid.uuid4())
+    stored_profiles = profiles if profiles else [{"off_days": p["off_days"], "count": p["count"]} for p in DEFAULT_OFF_DAY_PROFILES]
+    doc = {
+        "id": schedule_id,
+        "name": name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "english_input": english_data,
+        "language_input": language_data,
+        "off_day_profiles": stored_profiles,
+        "shiftwise": result["shiftwise"],
+        "gap_analysis": result["gap_analysis"],
+        "roster": result["roster"],
+        "sla": result["sla"],
+        "summary": result["summary"],
+    }
+    await db.schedules.insert_one(doc)
+
+    return {
+        "id": schedule_id,
+        "name": name,
+        "off_day_profiles": stored_profiles,
+        "shiftwise": result["shiftwise"],
+        "gap_analysis": result["gap_analysis"],
+        "roster": result["roster"],
+        "sla": result["sla"],
+        "summary": result["summary"],
+    }
+
+
+@api_router.post("/compare")
+async def compare_scenarios(payload: dict = Body(...)):
+    """Return comparison data for multiple schedule IDs."""
+    ids = payload.get("ids", [])
+    if len(ids) < 2:
+        return {"error": "Need at least 2 schedule IDs to compare"}
+
+    scenarios = []
+    for sid in ids[:5]:  # max 5
+        doc = await db.schedules.find_one({"id": sid}, {"_id": 0, "roster": 0, "gap_analysis": 0})
+        if doc:
+            scenarios.append(doc)
+
+    return {"scenarios": scenarios}
+
+
+@api_router.delete("/schedule/{schedule_id}")
+async def delete_schedule(schedule_id: str):
+    await db.schedules.delete_one({"id": schedule_id})
+    return {"deleted": schedule_id}
+
+
+@api_router.patch("/schedule/{schedule_id}")
+async def rename_schedule(schedule_id: str, payload: dict = Body(...)):
+    new_name = payload.get("name", "")
+    if new_name:
+        await db.schedules.update_one({"id": schedule_id}, {"$set": {"name": new_name}})
+    return {"id": schedule_id, "name": new_name}
 
 
 def parse_csv_to_dict(content: str) -> dict:
@@ -318,7 +427,7 @@ def parse_csv_to_dict(content: str) -> dict:
 @api_router.get("/schedules")
 async def list_schedules():
     schedules = await db.schedules.find(
-        {}, {"_id": 0, "id": 1, "timestamp": 1, "summary": 1}
+        {}, {"_id": 0, "id": 1, "name": 1, "timestamp": 1, "summary": 1, "sla": 1, "off_day_profiles": 1}
     ).sort("timestamp", -1).to_list(50)
     return schedules
 

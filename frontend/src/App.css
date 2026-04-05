@@ -630,3 +630,226 @@ body {
     overflow-x: auto;
   }
 }
+
+/* === SCENARIO COMPARISON === */
+
+.scenario-builder {
+  border: 1px solid var(--border-color);
+  padding: 20px;
+  margin-bottom: 20px;
+  background: var(--bg-secondary);
+}
+
+.builder-header {
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.agent-counter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.text-warn {
+  color: var(--accent-red) !important;
+}
+
+.text-warn-hint {
+  font-size: 10px;
+  color: var(--accent-red);
+}
+
+.profiles-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.profile-card {
+  border: 1px solid var(--border-color);
+  padding: 10px 12px;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.profile-card.profile-add {
+  border-style: dashed;
+  justify-content: center;
+}
+
+.profile-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-secondary);
+}
+
+.profile-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.profile-input {
+  width: 60px;
+  text-align: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 4px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+}
+
+.profile-input:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+.profile-select {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  width: 100%;
+  cursor: pointer;
+}
+
+.btn-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg-secondary);
+  transition: background-color 150ms;
+}
+
+.btn-icon:hover {
+  background: var(--bg-hover);
+}
+
+.btn-icon-danger:hover {
+  background: #FEE2E2;
+  color: var(--accent-red);
+  border-color: var(--accent-red);
+}
+
+/* Scenario list */
+.scenario-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.scenario-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-primary);
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms;
+}
+
+.scenario-item:hover {
+  background: var(--bg-hover);
+}
+
+.scenario-item.selected {
+  border-color: var(--accent-blue);
+  background: #F0F4FF;
+}
+
+.scenario-check {
+  flex-shrink: 0;
+}
+
+.scenario-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.scenario-name {
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scenario-meta {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.scenario-sla {
+  text-align: right;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.scenario-sla .font-mono {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.empty-state {
+  padding: 32px;
+  text-align: center;
+  color: var(--fg-muted);
+  border: 1px dashed var(--border-color);
+  font-size: 13px;
+}
+
+/* Comparison results */
+.compare-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.compare-card {
+  border: 1px solid var(--border-color);
+  padding: 16px;
+  background: var(--bg-primary);
+}
+
+.compare-card-name {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 12px;
+}
+
+.compare-stat {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 4px 0;
+  border-bottom: 1px solid #F1F5F9;
+}
+
+.compare-stat:last-child {
+  border-bottom: none;
+}
