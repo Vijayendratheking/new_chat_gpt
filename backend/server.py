@@ -6,19 +6,21 @@ from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 import io
-import csv
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Dict, Optional
+from typing import Optional
 import uuid
 from datetime import datetime, timezone
+import openpyxl
+import xlsxwriter
 
-from scheduler import run_scheduler, DAYS, SHIFTS, DEFAULT_OFF_DAY_PROFILES
+from scheduler import (
+    run_scheduler, DAYS, ENGLISH_SHIFTS, LANGUAGE_SHIFTS, ALL_SHIFTS,
+    DEFAULT_OFF_DAY_PROFILES,
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
@@ -48,23 +50,111 @@ DEFAULT_LANGUAGE = {
 }
 
 
-def parse_csv_to_dict(content: str) -> Dict:
-    """Parse CSV content into nested dict {day: {hour: value}}."""
-    reader = csv.DictReader(io.StringIO(content))
-    result = {}
-    for day in DAYS:
-        result[day] = {}
-    for row in reader:
-        interval = row.get("Interval", row.get("interval", "")).strip()
-        if not interval:
+def parse_excel_to_dict(content: bytes) -> dict:
+    """Parse an Excel file (first sheet) into {day: {hour: value}}.
+    Handles title rows by scanning for the header row containing 'Interval'."""
+    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return {}
+    # Find the header row (contains "Interval")
+    header_idx = 0
+    for i, row in enumerate(rows):
+        cells = [str(c).strip().lower() if c else "" for c in row]
+        if "interval" in cells:
+            header_idx = i
+            break
+    headers = [str(h).strip() if h else "" for h in rows[header_idx]]
+    result = {d: {} for d in DAYS}
+    for row in rows[header_idx + 1:]:
+        interval = str(row[0]).strip() if row[0] is not None else ""
+        if not interval or ":" not in interval:
             continue
         for day in DAYS:
-            val = row.get(day, "0").strip()
-            try:
-                result[day][interval] = float(val) if val else 0
-            except ValueError:
-                result[day][interval] = 0
+            if day in headers:
+                day_col = headers.index(day)
+                val = row[day_col] if day_col < len(row) else 0
+                try:
+                    result[day][interval] = float(val) if val is not None else 0
+                except (ValueError, TypeError):
+                    result[day][interval] = 0
     return result
+
+
+def generate_sample_template() -> bytes:
+    """Generate a sample Excel template with two sheets: English and Language."""
+    output = io.BytesIO()
+    wb = xlsxwriter.Workbook(output)
+
+    # Formats
+    header_fmt = wb.add_format({
+        "bold": True, "bg_color": "#0033CC", "font_color": "#FFFFFF",
+        "border": 1, "font_name": "Calibri", "font_size": 11,
+        "align": "center", "valign": "vcenter",
+    })
+    interval_fmt = wb.add_format({
+        "bold": True, "bg_color": "#F1F5F9", "border": 1,
+        "font_name": "Calibri", "font_size": 11,
+    })
+    data_fmt = wb.add_format({
+        "border": 1, "font_name": "Calibri", "font_size": 11,
+        "align": "center", "num_format": "0",
+    })
+    title_fmt = wb.add_format({
+        "bold": True, "font_size": 14, "font_name": "Calibri",
+        "font_color": "#0033CC",
+    })
+
+    hours = [f"{h:02d}:00" for h in range(24)]
+
+    for sheet_name, data in [("English", DEFAULT_ENGLISH), ("Language", DEFAULT_LANGUAGE)]:
+        ws = wb.add_worksheet(sheet_name)
+        ws.set_column("A:A", 10)
+        ws.set_column("B:H", 12)
+
+        # Title row
+        ws.merge_range("A1:H1", f"Required Hours - {sheet_name}", title_fmt)
+
+        # Headers
+        ws.write(1, 0, "Interval", header_fmt)
+        for i, day in enumerate(DAYS):
+            ws.write(1, i + 1, day, header_fmt)
+
+        # Data
+        for row_idx, hour in enumerate(hours):
+            ws.write(row_idx + 2, 0, hour, interval_fmt)
+            for col_idx, day in enumerate(DAYS):
+                val = data.get(day, {}).get(hour, 0)
+                ws.write(row_idx + 2, col_idx + 1, val, data_fmt)
+
+    # Add shift reference sheet
+    ws_ref = wb.add_worksheet("Shift Reference")
+    ws_ref.set_column("A:D", 18)
+    ws_ref.write(0, 0, "Shift Reference", title_fmt)
+
+    ws_ref.write(2, 0, "English Shifts", wb.add_format({"bold": True, "font_size": 12, "font_color": "#0033CC"}))
+    ws_ref.write(3, 0, "Shift ID", header_fmt)
+    ws_ref.write(3, 1, "Time Range", header_fmt)
+    ws_ref.write(3, 2, "Duration", header_fmt)
+    for i, s in enumerate(ENGLISH_SHIFTS):
+        ws_ref.write(4 + i, 0, s["id"], data_fmt)
+        ws_ref.write(4 + i, 1, s["label"], data_fmt)
+        ws_ref.write(4 + i, 2, "9 hours", data_fmt)
+
+    row_start = 4 + len(ENGLISH_SHIFTS) + 1
+    ws_ref.write(row_start, 0, "Language Shifts", wb.add_format({"bold": True, "font_size": 12, "font_color": "#FF6600"}))
+    ws_ref.write(row_start + 1, 0, "Shift ID", header_fmt)
+    ws_ref.write(row_start + 1, 1, "Time Range", header_fmt)
+    ws_ref.write(row_start + 1, 2, "Duration", header_fmt)
+    for i, s in enumerate(LANGUAGE_SHIFTS):
+        ws_ref.write(row_start + 2 + i, 0, s["id"], data_fmt)
+        ws_ref.write(row_start + 2 + i, 1, s["label"], data_fmt)
+        ws_ref.write(row_start + 2 + i, 2, "9 hours", data_fmt)
+
+    wb.close()
+    output.seek(0)
+    return output.getvalue()
 
 
 @api_router.get("/")
@@ -74,11 +164,18 @@ async def root():
 
 @api_router.get("/default-requirements")
 async def get_default_requirements():
-    """Return the default requirement data."""
-    return {
-        "english": DEFAULT_ENGLISH,
-        "language": DEFAULT_LANGUAGE,
-    }
+    return {"english": DEFAULT_ENGLISH, "language": DEFAULT_LANGUAGE}
+
+
+@api_router.get("/sample-template")
+async def download_sample_template():
+    """Download a sample Excel template showing the required data format."""
+    content = generate_sample_template()
+    return StreamingResponse(
+        io.BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=schedule_template.xlsx"}
+    )
 
 
 @api_router.post("/run-schedule")
@@ -86,22 +183,27 @@ async def run_schedule_endpoint(
     english_file: Optional[UploadFile] = File(None),
     language_file: Optional[UploadFile] = File(None),
 ):
-    """Run the scheduling algorithm. Uses default data if no files uploaded."""
+    """Run the scheduling algorithm. Accepts .xlsx or .csv. Uses defaults if no files."""
     if english_file and english_file.filename:
-        eng_content = (await english_file.read()).decode("utf-8")
-        english_data = parse_csv_to_dict(eng_content)
+        eng_bytes = await english_file.read()
+        if english_file.filename.endswith(".xlsx"):
+            english_data = parse_excel_to_dict(eng_bytes)
+        else:
+            english_data = parse_csv_to_dict(eng_bytes.decode("utf-8"))
     else:
         english_data = DEFAULT_ENGLISH
 
     if language_file and language_file.filename:
-        lang_content = (await language_file.read()).decode("utf-8")
-        language_data = parse_csv_to_dict(lang_content)
+        lang_bytes = await language_file.read()
+        if language_file.filename.endswith(".xlsx"):
+            language_data = parse_excel_to_dict(lang_bytes)
+        else:
+            language_data = parse_csv_to_dict(lang_bytes.decode("utf-8"))
     else:
         language_data = DEFAULT_LANGUAGE
 
     result = run_scheduler(english_data, language_data)
 
-    # Store in MongoDB
     schedule_id = str(uuid.uuid4())
     doc = {
         "id": schedule_id,
@@ -126,9 +228,25 @@ async def run_schedule_endpoint(
     }
 
 
+def parse_csv_to_dict(content: str) -> dict:
+    import csv
+    reader = csv.DictReader(io.StringIO(content))
+    result = {d: {} for d in DAYS}
+    for row in reader:
+        interval = row.get("Interval", row.get("interval", "")).strip()
+        if not interval:
+            continue
+        for day in DAYS:
+            val = row.get(day, "0").strip()
+            try:
+                result[day][interval] = float(val) if val else 0
+            except ValueError:
+                result[day][interval] = 0
+    return result
+
+
 @api_router.get("/schedules")
 async def list_schedules():
-    """List all schedules (summary only)."""
     schedules = await db.schedules.find(
         {}, {"_id": 0, "id": 1, "timestamp": 1, "summary": 1}
     ).sort("timestamp", -1).to_list(50)
@@ -137,7 +255,6 @@ async def list_schedules():
 
 @api_router.get("/schedule/{schedule_id}")
 async def get_schedule(schedule_id: str):
-    """Get full schedule results."""
     doc = await db.schedules.find_one({"id": schedule_id}, {"_id": 0})
     if not doc:
         return {"error": "Schedule not found"}
@@ -145,53 +262,87 @@ async def get_schedule(schedule_id: str):
 
 
 @api_router.get("/export/{schedule_id}/{export_type}")
-async def export_csv(schedule_id: str, export_type: str):
-    """Export schedule data as CSV."""
+async def export_xlsx(schedule_id: str, export_type: str):
+    """Export schedule data as Excel (.xlsx)."""
     doc = await db.schedules.find_one({"id": schedule_id}, {"_id": 0})
     if not doc:
         return {"error": "Schedule not found"}
 
-    output = io.StringIO()
-    writer = csv.writer(output)
+    output = io.BytesIO()
+    wb = xlsxwriter.Workbook(output)
+    header_fmt = wb.add_format({"bold": True, "bg_color": "#0033CC", "font_color": "#FFFFFF", "border": 1, "align": "center"})
+    data_fmt = wb.add_format({"border": 1, "align": "center"})
+    num_fmt = wb.add_format({"border": 1, "align": "center", "num_format": "0"})
+    pct_fmt = wb.add_format({"border": 1, "align": "center", "num_format": "0.00\"%\""})
 
     if export_type == "shiftwise":
-        headers = ["Shift ID", "Hours"] + DAYS + ["Total"]
-        writer.writerow(headers)
-        for row in doc["shiftwise"]:
-            writer.writerow([row["shift_id"], row["hours"]] + [row[d] for d in DAYS] + [row["total"]])
+        ws = wb.add_worksheet("Shift Counts")
+        headers = ["Shift ID", "Project", "Time Range"] + DAYS + ["Total"]
+        for i, h in enumerate(headers):
+            ws.write(0, i, h, header_fmt)
+        for r_idx, row in enumerate(doc["shiftwise"]):
+            ws.write(r_idx + 1, 0, row["shift_id"], data_fmt)
+            ws.write(r_idx + 1, 1, row["project"], data_fmt)
+            ws.write(r_idx + 1, 2, row["label"], data_fmt)
+            for d_idx, d in enumerate(DAYS):
+                ws.write(r_idx + 1, 3 + d_idx, row[d], num_fmt)
+            ws.write(r_idx + 1, 10, row["total"], num_fmt)
 
     elif export_type == "roster":
+        ws = wb.add_worksheet("Agent Roster")
         headers = ["Agent ID", "Off Days"] + DAYS
-        writer.writerow(headers)
-        for row in doc["roster"]:
-            writer.writerow([row["agent_id"], row["off_days"]] + [row[d] for d in DAYS])
+        for i, h in enumerate(headers):
+            ws.write(0, i, h, header_fmt)
+        for r_idx, row in enumerate(doc["roster"]):
+            ws.write(r_idx + 1, 0, row["agent_id"], data_fmt)
+            ws.write(r_idx + 1, 1, row["off_days"], data_fmt)
+            for d_idx, d in enumerate(DAYS):
+                ws.write(r_idx + 1, 2 + d_idx, row[d], data_fmt)
 
     elif export_type == "gap":
+        ws = wb.add_worksheet("Gap Analysis")
         headers = ["Interval"]
         for d in DAYS:
-            headers += [f"{d} Req", f"{d} Deployed", f"{d} Gap"]
-        writer.writerow(headers)
-        for row in doc["gap_analysis"]:
-            vals = [row["interval"]]
+            headers += [f"{d[:3]} Eng Req", f"{d[:3]} Eng Dep", f"{d[:3]} Eng Gap",
+                        f"{d[:3]} Lang Req", f"{d[:3]} Lang Dep", f"{d[:3]} Lang Gap"]
+        for i, h in enumerate(headers):
+            ws.write(0, i, h, header_fmt)
+        for r_idx, row in enumerate(doc["gap_analysis"]):
+            ws.write(r_idx + 1, 0, row["interval"], data_fmt)
+            col = 1
             for d in DAYS:
-                vals += [row[f"{d}_required"], row[f"{d}_deployed"], row[f"{d}_gap"]]
-            writer.writerow(vals)
+                ws.write(r_idx + 1, col, row[f"{d}_eng_req"], num_fmt)
+                ws.write(r_idx + 1, col + 1, row[f"{d}_eng_deployed"], num_fmt)
+                ws.write(r_idx + 1, col + 2, row[f"{d}_eng_gap"], num_fmt)
+                ws.write(r_idx + 1, col + 3, row[f"{d}_lang_req"], num_fmt)
+                ws.write(r_idx + 1, col + 4, row[f"{d}_lang_deployed"], num_fmt)
+                ws.write(r_idx + 1, col + 5, row[f"{d}_lang_gap"], num_fmt)
+                col += 6
 
     elif export_type == "sla":
-        headers = ["Day", "Eng Required", "Eng Met", "Eng SLA%", "Lang Required", "Lang Met", "Lang SLA%", "Combined Required", "Combined Met", "Combined SLA%"]
-        writer.writerow(headers)
-        for row in doc["sla"]["daily"]:
-            writer.writerow([
-                row["day"], row["english_required"], row["english_met"], row["english_sla"],
-                row["language_required"], row["language_met"], row["language_sla"],
-                row["combined_required"], row["combined_met"], row["combined_sla"],
-            ])
+        ws = wb.add_worksheet("SLA Analysis")
+        headers = ["Day", "Eng Req", "Eng Met", "Eng SLA%", "Lang Req", "Lang Met", "Lang SLA%",
+                    "Combined Req", "Combined Met", "Combined SLA%"]
+        for i, h in enumerate(headers):
+            ws.write(0, i, h, header_fmt)
+        for r_idx, row in enumerate(doc["sla"]["daily"]):
+            ws.write(r_idx + 1, 0, row["day"], data_fmt)
+            ws.write(r_idx + 1, 1, row["english_required"], num_fmt)
+            ws.write(r_idx + 1, 2, row["english_met"], num_fmt)
+            ws.write(r_idx + 1, 3, row["english_sla"], pct_fmt)
+            ws.write(r_idx + 1, 4, row["language_required"], num_fmt)
+            ws.write(r_idx + 1, 5, row["language_met"], num_fmt)
+            ws.write(r_idx + 1, 6, row["language_sla"], pct_fmt)
+            ws.write(r_idx + 1, 7, row["combined_required"], num_fmt)
+            ws.write(r_idx + 1, 8, row["combined_met"], num_fmt)
+            ws.write(r_idx + 1, 9, row["combined_sla"], pct_fmt)
 
+    wb.close()
     output.seek(0)
     return StreamingResponse(
-        io.BytesIO(output.getvalue().encode()),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={export_type}_{schedule_id[:8]}.csv"}
+        io.BytesIO(output.getvalue()),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={export_type}_{schedule_id[:8]}.xlsx"}
     )
 
 

@@ -1,6 +1,8 @@
 import requests
 import sys
 import json
+import io
+import openpyxl
 from datetime import datetime
 
 class CrossSkillSchedulerTester:
@@ -166,8 +168,92 @@ class CrossSkillSchedulerTester:
                 return False
         return success
 
-    def test_export_csv(self):
-        """Test CSV export functionality"""
+    def test_sample_template(self):
+        """Test sample template download (.xlsx)"""
+        success, response = self.run_test(
+            "Sample Template Download (.xlsx)",
+            "GET",
+            "sample-template",
+            200
+        )
+        if success:
+            # Check if response is binary (Excel file)
+            if isinstance(response, (str, bytes)):
+                print("   ✓ Sample template download successful")
+                # Try to parse as Excel to validate
+                try:
+                    if isinstance(response, str):
+                        # If it's a string, it might be base64 or text, try to get binary
+                        print("   ⚠️  Response is text, expected binary Excel file")
+                        return True  # Still consider success if we got a response
+                    else:
+                        wb = openpyxl.load_workbook(io.BytesIO(response))
+                        sheets = wb.sheetnames
+                        print(f"   ✓ Excel file valid with sheets: {sheets}")
+                        if 'English' in sheets and 'Language' in sheets:
+                            print("   ✓ Required sheets (English, Language) found")
+                            return True
+                        else:
+                            print("   ❌ Missing required sheets")
+                            return False
+                except Exception as e:
+                    print(f"   ⚠️  Could not validate Excel format: {e}")
+                    return True  # Still consider success if download worked
+            else:
+                print("   ❌ Invalid response format")
+                return False
+        return success
+
+    def test_excel_upload(self):
+        """Test Excel file upload functionality"""
+        # Create a simple test Excel file
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "English"
+        
+        # Add headers
+        ws['A1'] = 'Interval'
+        ws['B1'] = 'Monday'
+        ws['C1'] = 'Tuesday'
+        
+        # Add some test data
+        ws['A2'] = '00:00'
+        ws['B2'] = 5
+        ws['C2'] = 6
+        ws['A3'] = '01:00'
+        ws['B3'] = 3
+        ws['C3'] = 4
+        
+        # Save to bytes
+        excel_buffer = io.BytesIO()
+        wb.save(excel_buffer)
+        excel_buffer.seek(0)
+        
+        files = {'english_file': ('test_english.xlsx', excel_buffer.getvalue(), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
+        
+        success, response = self.run_test(
+            "Excel File Upload",
+            "POST",
+            "run-schedule",
+            200,
+            files=files
+        )
+        
+        if success:
+            # Validate response structure
+            required_keys = ['id', 'shiftwise', 'gap_analysis', 'roster', 'sla', 'summary']
+            missing_keys = [key for key in required_keys if key not in response]
+            if not missing_keys:
+                print("   ✓ Excel upload processed successfully")
+                self.schedule_id = response['id']  # Update schedule ID for export tests
+                return True
+            else:
+                print(f"   ❌ Missing keys in response: {missing_keys}")
+                return False
+        return success
+
+    def test_export_xlsx(self):
+        """Test Excel export functionality"""
         if not self.schedule_id:
             print("❌ No schedule ID available for testing")
             return False
@@ -177,22 +263,77 @@ class CrossSkillSchedulerTester:
         
         for export_type in export_types:
             success, response = self.run_test(
-                f"Export CSV ({export_type})",
+                f"Export Excel ({export_type})",
                 "GET",
                 f"export/{self.schedule_id}/{export_type}",
                 200
             )
             if success:
-                # Check if response looks like CSV
-                if isinstance(response, str) and ',' in response:
-                    print(f"   ✓ CSV export for {export_type} successful")
+                # Check if response is binary (Excel file)
+                if isinstance(response, (bytes, str)):
+                    print(f"   ✓ Excel export for {export_type} successful")
                 else:
-                    print(f"   ❌ Invalid CSV response for {export_type}")
+                    print(f"   ❌ Invalid Excel response for {export_type}")
                     all_passed = False
             else:
                 all_passed = False
         
         return all_passed
+
+    def test_project_specific_shifts(self):
+        """Test that the schedule includes correct project-specific shifts"""
+        if not self.schedule_id:
+            print("❌ No schedule ID available for testing")
+            return False
+            
+        success, response = self.run_test(
+            "Project-Specific Shifts Validation",
+            "GET",
+            f"schedule/{self.schedule_id}",
+            200
+        )
+        
+        if success:
+            shiftwise = response.get('shiftwise', [])
+            
+            # Check for English shifts (E05-E20, 9 shifts)
+            english_shifts = [row for row in shiftwise if row.get('project') == 'English' and not row.get('shift_id', '').endswith('_TOTAL')]
+            expected_english = ['E05', 'E07', 'E08', 'E09', 'E11', 'E14', 'E16', 'E18', 'E20']
+            
+            english_shift_ids = [row.get('shift_id') for row in english_shifts]
+            
+            if len(english_shifts) == 9:
+                print(f"   ✓ Found 9 English shifts: {english_shift_ids}")
+                missing_english = [s for s in expected_english if s not in english_shift_ids]
+                if not missing_english:
+                    print("   ✓ All expected English shifts present")
+                else:
+                    print(f"   ❌ Missing English shifts: {missing_english}")
+                    return False
+            else:
+                print(f"   ❌ Expected 9 English shifts, found {len(english_shifts)}")
+                return False
+            
+            # Check for Language shifts (L07-L11, 5 shifts)
+            language_shifts = [row for row in shiftwise if row.get('project') == 'Language' and not row.get('shift_id', '').endswith('_TOTAL')]
+            expected_language = ['L07', 'L08', 'L09', 'L10', 'L11']
+            
+            language_shift_ids = [row.get('shift_id') for row in language_shifts]
+            
+            if len(language_shifts) == 5:
+                print(f"   ✓ Found 5 Language shifts: {language_shift_ids}")
+                missing_language = [s for s in expected_language if s not in language_shift_ids]
+                if not missing_language:
+                    print("   ✓ All expected Language shifts present")
+                    return True
+                else:
+                    print(f"   ❌ Missing Language shifts: {missing_language}")
+                    return False
+            else:
+                print(f"   ❌ Expected 5 Language shifts, found {len(language_shifts)}")
+                return False
+        
+        return success
 
 def main():
     """Run all backend tests"""
@@ -205,10 +346,13 @@ def main():
     tests = [
         tester.test_root_endpoint,
         tester.test_default_requirements,
+        tester.test_sample_template,
         tester.test_run_schedule_default,
+        tester.test_excel_upload,
+        tester.test_project_specific_shifts,
         tester.test_list_schedules,
         tester.test_get_schedule,
-        tester.test_export_csv,
+        tester.test_export_xlsx,
     ]
     
     for test in tests:

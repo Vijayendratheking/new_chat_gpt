@@ -3,11 +3,11 @@ import "./App.css";
 import axios from "axios";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area, Legend
+  AreaChart, Area, Legend,
 } from "recharts";
 import {
   Upload, Play, DownloadSimple, Table, ChartBar, Users, Gauge,
-  CaretLeft, CaretRight, MagnifyingGlass, Spinner, ArrowsClockwise
+  CaretLeft, CaretRight, MagnifyingGlass, ArrowsClockwise, FileXls,
 } from "@phosphor-icons/react";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -21,6 +21,7 @@ function App() {
   const [result, setResult] = useState(null);
   const [activeTab, setActiveTab] = useState("shiftwise");
   const [selectedDay, setSelectedDay] = useState("Monday");
+  const [gapProject, setGapProject] = useState("total");
   const [rosterPage, setRosterPage] = useState(0);
   const [rosterSearch, setRosterSearch] = useState("");
   const ROSTER_PAGE_SIZE = 25;
@@ -44,14 +45,19 @@ function App() {
     }
   }, [englishFile, languageFile]);
 
-  const exportCSV = useCallback(async (type) => {
+  const downloadTemplate = () => {
+    window.open(`${API}/sample-template`, "_blank");
+  };
+
+  const exportFile = useCallback((type) => {
     if (!result?.id) return;
     window.open(`${API}/export/${result.id}/${type}`, "_blank");
   }, [result]);
 
   const getShiftClass = (shift) => {
     if (shift === "OFF") return "shift-off";
-    const num = parseInt(shift.replace("S", ""));
+    if (shift.startsWith("L")) return "shift-lang";
+    const num = parseInt(shift.replace("E", ""));
     if (num <= 11) return "shift-morning";
     if (num <= 16) return "shift-afternoon";
     return "shift-night";
@@ -69,9 +75,10 @@ function App() {
     return "gap-zero";
   };
 
-  // Filter roster
+  // Roster filtering + pagination
   const filteredRoster = result?.roster?.filter(r =>
-    r.agent_id.toLowerCase().includes(rosterSearch.toLowerCase())
+    r.agent_id.toLowerCase().includes(rosterSearch.toLowerCase()) ||
+    r.off_days.toLowerCase().includes(rosterSearch.toLowerCase())
   ) || [];
   const totalRosterPages = Math.ceil(filteredRoster.length / ROSTER_PAGE_SIZE);
   const pagedRoster = filteredRoster.slice(
@@ -79,13 +86,16 @@ function App() {
     (rosterPage + 1) * ROSTER_PAGE_SIZE
   );
 
-  // Gap data for selected day chart
-  const gapChartData = result?.gap_analysis?.map(row => ({
-    hour: row.interval,
-    required: row[`${selectedDay}_required`],
-    deployed: row[`${selectedDay}_deployed`],
-    gap: row[`${selectedDay}_gap`],
-  })) || [];
+  // Gap data for selected day + project
+  const gapChartData = result?.gap_analysis?.map(row => {
+    const prefix = `${selectedDay}_`;
+    if (gapProject === "english") {
+      return { hour: row.interval, required: row[`${prefix}eng_req`], deployed: row[`${prefix}eng_deployed`], gap: row[`${prefix}eng_gap`] };
+    } else if (gapProject === "language") {
+      return { hour: row.interval, required: row[`${prefix}lang_req`], deployed: row[`${prefix}lang_deployed`], gap: row[`${prefix}lang_gap`] };
+    }
+    return { hour: row.interval, required: row[`${prefix}total_req`], deployed: row[`${prefix}total_deployed`], gap: row[`${prefix}total_gap`] };
+  }) || [];
 
   // SLA chart data
   const slaChartData = result?.sla?.daily?.map(row => ({
@@ -95,9 +105,16 @@ function App() {
     combined: row.combined_sla,
   })) || [];
 
-  // Shiftwise chart data
-  const shiftwiseChartData = result?.shiftwise
-    ?.filter(r => r.shift_id !== "TOTAL")
+  // Shiftwise chart - split by project
+  const engShiftChart = result?.shiftwise
+    ?.filter(r => r.project === "English" && !r.shift_id.includes("TOTAL"))
+    .map(r => ({
+      shift: r.shift_id,
+      ...DAYS.reduce((acc, d, i) => ({ ...acc, [DAYS_SHORT[i]]: r[d] }), {}),
+    })) || [];
+
+  const langShiftChart = result?.shiftwise
+    ?.filter(r => r.project === "Language" && !r.shift_id.includes("TOTAL"))
     .map(r => ({
       shift: r.shift_id,
       ...DAYS.reduce((acc, d, i) => ({ ...acc, [DAYS_SHORT[i]]: r[d] }), {}),
@@ -105,10 +122,9 @@ function App() {
 
   return (
     <div className="app-shell">
-      {/* Header */}
       <header className="app-header" data-testid="app-header">
         <h1>Cross-Skill Scheduler</h1>
-        <span className="header-meta">212 Agents / 9 Shifts / 7 Days</span>
+        <span className="header-meta">212 Agents / 14 Shifts / 7 Days</span>
       </header>
 
       <main className="main-content">
@@ -116,53 +132,57 @@ function App() {
         <div className="upload-panel" data-testid="upload-panel">
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Upload size={20} weight="bold" />
-            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.15em", color: "#64748B" }}>
-              Upload Requirements or Use Defaults
-            </span>
+            <span className="mono-label">Upload Requirements (.xlsx) or Use Defaults</span>
           </div>
+
+          <button data-testid="download-template-btn" className="btn btn-secondary btn-sm" onClick={downloadTemplate}>
+            <FileXls size={16} weight="bold" /> Download Sample Template (.xlsx)
+          </button>
+
           <div className="upload-grid">
             <div className="file-input-group">
-              <label htmlFor="english-csv">English Requirements (.csv)</label>
+              <label htmlFor="english-file">English Requirements</label>
               <input
-                data-testid="english-csv-input"
-                id="english-csv"
+                data-testid="english-file-input"
+                id="english-file"
                 type="file"
-                accept=".csv"
+                accept=".xlsx,.csv"
                 onChange={e => setEnglishFile(e.target.files[0])}
               />
               {englishFile && <span style={{ fontSize: 12, color: "#00C853" }}>{englishFile.name}</span>}
             </div>
             <div className="file-input-group">
-              <label htmlFor="language-csv">Language Requirements (.csv)</label>
+              <label htmlFor="language-file">Language Requirements</label>
               <input
-                data-testid="language-csv-input"
-                id="language-csv"
+                data-testid="language-file-input"
+                id="language-file"
                 type="file"
-                accept=".csv"
+                accept=".xlsx,.csv"
                 onChange={e => setLanguageFile(e.target.files[0])}
               />
               {languageFile && <span style={{ fontSize: 12, color: "#00C853" }}>{languageFile.name}</span>}
             </div>
           </div>
+
           <button
             data-testid="run-schedule-btn"
             className="btn btn-primary"
             onClick={runSchedule}
             disabled={loading}
           >
-            {loading ? <Spinner size={16} className="spinner" /> : <Play size={16} weight="bold" />}
+            <Play size={16} weight="bold" />
             {loading ? "Computing Schedule..." : "Run Greedy Scheduler"}
           </button>
-          <span style={{ fontSize: 12, color: "#64748B" }}>
-            {(!englishFile && !languageFile) ? "No files selected — will use default requirement data from image" : ""}
-          </span>
+          {(!englishFile && !languageFile) && (
+            <span style={{ fontSize: 12, color: "#64748B" }}>No files selected — will use default requirement data</span>
+          )}
         </div>
 
-        {/* Loading state */}
+        {/* Loading */}
         {loading && (
           <div className="loading-overlay" data-testid="loading-overlay">
             <div className="spinner"></div>
-            <span className="loading-text">Running greedy optimization for 212 agents...</span>
+            <span className="loading-text">Running greedy optimization for 212 agents across 14 shift patterns...</span>
           </div>
         )}
 
@@ -173,19 +193,21 @@ function App() {
             <div className="summary-grid" data-testid="summary-grid">
               <div className="summary-card">
                 <div className="card-label">Total Agents</div>
-                <div className="card-value">{result.summary.total_agents}</div>
+                <div className="card-value" data-testid="total-agents">{result.summary.total_agents}</div>
               </div>
               <div className="summary-card">
-                <div className="card-label">Shift Patterns</div>
-                <div className="card-value">{result.summary.shift_patterns}</div>
+                <div className="card-label">English Shifts</div>
+                <div className="card-value" data-testid="english-shifts">{result.summary.english_shifts}</div>
+                <div className="card-sub">{result.summary.english_patterns} patterns</div>
               </div>
               <div className="summary-card">
-                <div className="card-label">Total Shifts Assigned</div>
-                <div className="card-value">{result.summary.total_shifts_assigned}</div>
+                <div className="card-label">Language Shifts</div>
+                <div className="card-value" data-testid="language-shifts">{result.summary.language_shifts}</div>
+                <div className="card-sub">{result.summary.language_patterns} patterns</div>
               </div>
               <div className="summary-card">
-                <div className="card-label">Avg SLA</div>
-                <div className="card-value">
+                <div className="card-label">Avg Combined SLA</div>
+                <div className="card-value" data-testid="avg-sla">
                   {(result.sla.daily.reduce((s, r) => s + r.combined_sla, 0) / 7).toFixed(1)}%
                 </div>
               </div>
@@ -210,51 +232,72 @@ function App() {
               ))}
             </div>
 
-            {/* Shiftwise Tab */}
+            {/* === SHIFTWISE TAB === */}
             {activeTab === "shiftwise" && (
               <div data-testid="shiftwise-panel">
                 <div className="export-bar">
                   <span className="section-title">Shift-Wise Agent Count</span>
-                  <button data-testid="export-shiftwise-btn" className="btn btn-secondary btn-sm" onClick={() => exportCSV("shiftwise")}>
-                    <DownloadSimple size={14} /> Export CSV
+                  <button data-testid="export-shiftwise-btn" className="btn btn-secondary btn-sm" onClick={() => exportFile("shiftwise")}>
+                    <DownloadSimple size={14} /> Export .xlsx
                   </button>
                 </div>
-                {/* Chart */}
-                <div className="chart-container">
-                  <div className="chart-title">Agents per Shift by Day</div>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={shiftwiseChartData}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-                      <XAxis dataKey="shift" tick={{ fontSize: 11, fontFamily: "IBM Plex Mono" }} />
-                      <YAxis tick={{ fontSize: 11, fontFamily: "IBM Plex Mono" }} />
-                      <Tooltip contentStyle={{ fontFamily: "IBM Plex Mono", fontSize: 12 }} />
-                      <Legend wrapperStyle={{ fontFamily: "IBM Plex Mono", fontSize: 11 }} />
-                      <Bar dataKey="Mon" fill="#0033CC" />
-                      <Bar dataKey="Tue" fill="#0066FF" />
-                      <Bar dataKey="Wed" fill="#3399FF" />
-                      <Bar dataKey="Thu" fill="#66B2FF" />
-                      <Bar dataKey="Fri" fill="#99CCFF" />
-                      <Bar dataKey="Sat" fill="#FFCC00" />
-                      <Bar dataKey="Sun" fill="#FF6600" />
-                    </BarChart>
-                  </ResponsiveContainer>
+
+                {/* Charts side-by-side */}
+                <div className="chart-row">
+                  <div className="chart-container" style={{ flex: 1 }}>
+                    <div className="chart-title">English Shifts by Day</div>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={engShiftChart}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                        <XAxis dataKey="shift" tick={{ fontSize: 10, fontFamily: "IBM Plex Mono" }} />
+                        <YAxis tick={{ fontSize: 10, fontFamily: "IBM Plex Mono" }} />
+                        <Tooltip contentStyle={{ fontFamily: "IBM Plex Mono", fontSize: 11 }} />
+                        <Legend wrapperStyle={{ fontFamily: "IBM Plex Mono", fontSize: 10 }} />
+                        {DAYS_SHORT.map((d, i) => (
+                          <Bar key={d} dataKey={d} fill={["#0033CC","#0055EE","#3377FF","#5599FF","#88BBFF","#FFCC00","#FF6600"][i]} />
+                        ))}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="chart-container" style={{ flex: 1 }}>
+                    <div className="chart-title">Language Shifts by Day</div>
+                    <ResponsiveContainer width="100%" height={260}>
+                      <BarChart data={langShiftChart}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                        <XAxis dataKey="shift" tick={{ fontSize: 10, fontFamily: "IBM Plex Mono" }} />
+                        <YAxis tick={{ fontSize: 10, fontFamily: "IBM Plex Mono" }} />
+                        <Tooltip contentStyle={{ fontFamily: "IBM Plex Mono", fontSize: 11 }} />
+                        <Legend wrapperStyle={{ fontFamily: "IBM Plex Mono", fontSize: 10 }} />
+                        {DAYS_SHORT.map((d, i) => (
+                          <Bar key={d} dataKey={d} fill={["#0033CC","#0055EE","#3377FF","#5599FF","#88BBFF","#FFCC00","#FF6600"][i]} />
+                        ))}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
+
                 {/* Table */}
                 <div className="table-wrapper" data-testid="shiftwise-table">
                   <table className="data-table">
                     <thead>
                       <tr>
                         <th>Shift</th>
-                        <th>Hours</th>
+                        <th>Project</th>
+                        <th>Time Range</th>
                         {DAYS.map(d => <th key={d} className="num">{d.substring(0, 3)}</th>)}
                         <th className="num">Total</th>
                       </tr>
                     </thead>
                     <tbody>
                       {result.shiftwise.map((row, i) => (
-                        <tr key={i} className={row.shift_id === "TOTAL" ? "total-row" : ""}>
+                        <tr key={i} className={row.shift_id.includes("TOTAL") ? "total-row" : ""}>
                           <td><span className="font-mono" style={{ fontWeight: 600 }}>{row.shift_id}</span></td>
-                          <td className="font-mono" style={{ fontSize: 11 }}>{row.hours}</td>
+                          <td>
+                            <span className={`project-badge ${row.project === "English" ? "project-eng" : row.project === "Language" ? "project-lang" : ""}`}>
+                              {row.project}
+                            </span>
+                          </td>
+                          <td className="font-mono" style={{ fontSize: 11 }}>{row.label}</td>
                           {DAYS.map(d => <td key={d} className="num">{row[d]}</td>)}
                           <td className="num" style={{ fontWeight: 600 }}>{row.total}</td>
                         </tr>
@@ -265,31 +308,43 @@ function App() {
               </div>
             )}
 
-            {/* Gap Dashboard Tab */}
+            {/* === GAP DASHBOARD TAB === */}
             {activeTab === "gap" && (
               <div data-testid="gap-panel">
                 <div className="export-bar">
                   <span className="section-title">Interval Gap Dashboard</span>
-                  <button data-testid="export-gap-btn" className="btn btn-secondary btn-sm" onClick={() => exportCSV("gap")}>
-                    <DownloadSimple size={14} /> Export CSV
+                  <button data-testid="export-gap-btn" className="btn btn-secondary btn-sm" onClick={() => exportFile("gap")}>
+                    <DownloadSimple size={14} /> Export .xlsx
                   </button>
                 </div>
-                {/* Day selector */}
-                <div className="day-selector" data-testid="day-selector">
-                  {DAYS.map(d => (
-                    <button
-                      key={d}
-                      data-testid={`day-btn-${d.toLowerCase()}`}
-                      className={`day-btn ${selectedDay === d ? "active" : ""}`}
-                      onClick={() => setSelectedDay(d)}
-                    >
-                      {d.substring(0, 3)}
-                    </button>
-                  ))}
+
+                {/* Day + Project selector */}
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
+                  <div>
+                    <div className="selector-label">Day</div>
+                    <div className="day-selector" data-testid="day-selector">
+                      {DAYS.map(d => (
+                        <button key={d} data-testid={`day-btn-${d.toLowerCase()}`}
+                          className={`day-btn ${selectedDay === d ? "active" : ""}`}
+                          onClick={() => setSelectedDay(d)}>{d.substring(0, 3)}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="selector-label">Project</div>
+                    <div className="day-selector" data-testid="project-selector">
+                      {[{id:"total",label:"Combined"},{id:"english",label:"English"},{id:"language",label:"Language"}].map(p => (
+                        <button key={p.id} data-testid={`project-btn-${p.id}`}
+                          className={`day-btn ${gapProject === p.id ? "active" : ""}`}
+                          onClick={() => setGapProject(p.id)}>{p.label}</button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+
                 {/* Area chart */}
                 <div className="chart-container">
-                  <div className="chart-title">Required vs Deployed — {selectedDay}</div>
+                  <div className="chart-title">Required vs Deployed — {selectedDay} ({gapProject})</div>
                   <div className="chart-legend">
                     <div className="legend-item"><div className="legend-dot" style={{ background: "#FF0000" }}></div>Required</div>
                     <div className="legend-item"><div className="legend-dot" style={{ background: "#0033CC" }}></div>Deployed</div>
@@ -305,6 +360,7 @@ function App() {
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
+
                 {/* Gap table */}
                 <div className="table-wrapper" data-testid="gap-table">
                   <table className="data-table">
@@ -317,13 +373,13 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {result.gap_analysis.map((row, i) => (
+                      {gapChartData.map((row, i) => (
                         <tr key={i}>
-                          <td className="font-mono">{row.interval}</td>
-                          <td className="num">{row[`${selectedDay}_required`]}</td>
-                          <td className="num">{row[`${selectedDay}_deployed`]}</td>
-                          <td className={`num ${gapClass(row[`${selectedDay}_gap`])}`}>
-                            {row[`${selectedDay}_gap`] > 0 ? "+" : ""}{row[`${selectedDay}_gap`]}
+                          <td className="font-mono">{row.hour}</td>
+                          <td className="num">{row.required}</td>
+                          <td className="num">{row.deployed}</td>
+                          <td className={`num ${gapClass(row.gap)}`}>
+                            {row.gap > 0 ? "+" : ""}{row.gap}
                           </td>
                         </tr>
                       ))}
@@ -333,7 +389,7 @@ function App() {
               </div>
             )}
 
-            {/* Agent Roster Tab */}
+            {/* === AGENT ROSTER TAB === */}
             {activeTab === "roster" && (
               <div data-testid="roster-panel">
                 <div className="export-bar">
@@ -345,13 +401,13 @@ function App() {
                         data-testid="roster-search-input"
                         className="search-input"
                         style={{ paddingLeft: 32 }}
-                        placeholder="Search agent ID..."
+                        placeholder="Search agent or off-day..."
                         value={rosterSearch}
                         onChange={e => { setRosterSearch(e.target.value); setRosterPage(0); }}
                       />
                     </div>
-                    <button data-testid="export-roster-btn" className="btn btn-secondary btn-sm" onClick={() => exportCSV("roster")}>
-                      <DownloadSimple size={14} /> Export CSV
+                    <button data-testid="export-roster-btn" className="btn btn-secondary btn-sm" onClick={() => exportFile("roster")}>
+                      <DownloadSimple size={14} /> Export .xlsx
                     </button>
                   </div>
                 </div>
@@ -379,40 +435,30 @@ function App() {
                     </tbody>
                   </table>
                 </div>
-                {/* Pagination */}
                 <div className="pagination" data-testid="roster-pagination">
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setRosterPage(p => Math.max(0, p - 1))}
-                    disabled={rosterPage === 0}
-                    data-testid="roster-prev-btn"
-                  >
+                  <button className="btn btn-secondary btn-sm" onClick={() => setRosterPage(p => Math.max(0, p - 1))}
+                    disabled={rosterPage === 0} data-testid="roster-prev-btn">
                     <CaretLeft size={14} /> Prev
                   </button>
-                  <span className="page-info">
-                    Page {rosterPage + 1} of {totalRosterPages || 1}
-                  </span>
-                  <button
-                    className="btn btn-secondary btn-sm"
-                    onClick={() => setRosterPage(p => Math.min(totalRosterPages - 1, p + 1))}
-                    disabled={rosterPage >= totalRosterPages - 1}
-                    data-testid="roster-next-btn"
-                  >
+                  <span className="page-info">Page {rosterPage + 1} of {totalRosterPages || 1}</span>
+                  <button className="btn btn-secondary btn-sm" onClick={() => setRosterPage(p => Math.min(totalRosterPages - 1, p + 1))}
+                    disabled={rosterPage >= totalRosterPages - 1} data-testid="roster-next-btn">
                     Next <CaretRight size={14} />
                   </button>
                 </div>
               </div>
             )}
 
-            {/* SLA Tab */}
+            {/* === SLA TAB === */}
             {activeTab === "sla" && (
               <div data-testid="sla-panel">
                 <div className="export-bar">
                   <span className="section-title">SLA Analysis</span>
-                  <button data-testid="export-sla-btn" className="btn btn-secondary btn-sm" onClick={() => exportCSV("sla")}>
-                    <DownloadSimple size={14} /> Export CSV
+                  <button data-testid="export-sla-btn" className="btn btn-secondary btn-sm" onClick={() => exportFile("sla")}>
+                    <DownloadSimple size={14} /> Export .xlsx
                   </button>
                 </div>
+
                 {/* SLA bar chart */}
                 <div className="chart-container">
                   <div className="chart-title">SLA % by Day & Project</div>
@@ -429,6 +475,7 @@ function App() {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+
                 {/* SLA Table */}
                 <div className="table-wrapper" data-testid="sla-table">
                   <table className="data-table">
@@ -444,7 +491,6 @@ function App() {
                         <th className="num">Total Req</th>
                         <th className="num">Total Met</th>
                         <th className="num">Total SLA</th>
-                        <th className="num">Deployed</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -453,38 +499,26 @@ function App() {
                           <td style={{ fontWeight: 600 }}>{row.day}</td>
                           <td className="num">{row.english_required}</td>
                           <td className="num">{row.english_met}</td>
-                          <td className="num">
-                            <span className={`sla-badge ${getSLAClass(row.english_sla)}`}>{row.english_sla}%</span>
-                          </td>
+                          <td className="num"><span className={`sla-badge ${getSLAClass(row.english_sla)}`}>{row.english_sla}%</span></td>
                           <td className="num">{row.language_required}</td>
                           <td className="num">{row.language_met}</td>
-                          <td className="num">
-                            <span className={`sla-badge ${getSLAClass(row.language_sla)}`}>{row.language_sla}%</span>
-                          </td>
+                          <td className="num"><span className={`sla-badge ${getSLAClass(row.language_sla)}`}>{row.language_sla}%</span></td>
                           <td className="num">{row.combined_required}</td>
                           <td className="num">{row.combined_met}</td>
-                          <td className="num">
-                            <span className={`sla-badge ${getSLAClass(row.combined_sla)}`}>{row.combined_sla}%</span>
-                          </td>
-                          <td className="num">{row.total_deployed}</td>
+                          <td className="num"><span className={`sla-badge ${getSLAClass(row.combined_sla)}`}>{row.combined_sla}%</span></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
 
-                {/* Hourly SLA breakdown for selected day */}
+                {/* Hourly breakdown */}
                 <div style={{ marginTop: 24 }}>
                   <div className="day-selector" data-testid="sla-day-selector">
                     {DAYS.map(d => (
-                      <button
-                        key={d}
-                        className={`day-btn ${selectedDay === d ? "active" : ""}`}
-                        onClick={() => setSelectedDay(d)}
-                        data-testid={`sla-day-btn-${d.toLowerCase()}`}
-                      >
-                        {d.substring(0, 3)}
-                      </button>
+                      <button key={d} className={`day-btn ${selectedDay === d ? "active" : ""}`}
+                        onClick={() => setSelectedDay(d)} data-testid={`sla-day-btn-${d.toLowerCase()}`}>
+                        {d.substring(0, 3)}</button>
                     ))}
                   </div>
                   <div className="chart-container">
@@ -496,10 +530,10 @@ function App() {
                         <YAxis tick={{ fontSize: 11, fontFamily: "IBM Plex Mono" }} />
                         <Tooltip contentStyle={{ fontFamily: "IBM Plex Mono", fontSize: 12 }} />
                         <Legend wrapperStyle={{ fontFamily: "IBM Plex Mono", fontSize: 11 }} />
-                        <Area type="monotone" dataKey="total_req" stroke="#FF0000" fill="#FEE2E2" strokeWidth={2} name="Total Required" />
-                        <Area type="monotone" dataKey="deployed" stroke="#0033CC" fill="#DBEAFE" strokeWidth={2} name="Deployed" />
-                        <Area type="monotone" dataKey="english_req" stroke="#64748B" fill="transparent" strokeWidth={1} strokeDasharray="4 4" name="English Req" />
-                        <Area type="monotone" dataKey="language_req" stroke="#FF6600" fill="transparent" strokeWidth={1} strokeDasharray="4 4" name="Language Req" />
+                        <Area type="monotone" dataKey="eng_req" stroke="#0033CC" fill="#DBEAFE" strokeWidth={2} name="English Req" />
+                        <Area type="monotone" dataKey="eng_deployed" stroke="#002299" fill="transparent" strokeWidth={1.5} strokeDasharray="6 3" name="English Deployed" />
+                        <Area type="monotone" dataKey="lang_req" stroke="#FF6600" fill="#FFF3E0" strokeWidth={2} name="Language Req" />
+                        <Area type="monotone" dataKey="lang_deployed" stroke="#CC5200" fill="transparent" strokeWidth={1.5} strokeDasharray="6 3" name="Language Deployed" />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -509,11 +543,7 @@ function App() {
 
             {/* Re-run */}
             <div style={{ padding: "24px 0", display: "flex", justifyContent: "center" }}>
-              <button
-                data-testid="rerun-btn"
-                className="btn btn-secondary"
-                onClick={() => { setResult(null); window.scrollTo(0, 0); }}
-              >
+              <button data-testid="rerun-btn" className="btn btn-secondary" onClick={() => { setResult(null); window.scrollTo(0, 0); }}>
                 <ArrowsClockwise size={16} /> New Schedule
               </button>
             </div>

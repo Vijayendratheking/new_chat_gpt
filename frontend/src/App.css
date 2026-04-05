@@ -464,6 +464,65 @@ body {
   color: #E2E8F0;
 }
 
+.shift-lang {
+  background: #FFF3E0;
+  color: #E65100;
+}
+
+/* Project badges */
+.project-badge {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.project-eng {
+  background: #DBEAFE;
+  color: #1E40AF;
+}
+
+.project-lang {
+  background: #FFF3E0;
+  color: #E65100;
+}
+
+/* Chart row */
+.chart-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 1024px) {
+  .chart-row {
+    flex-direction: column;
+  }
+}
+
+/* Selector label */
+.selector-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: var(--fg-muted);
+  margin-bottom: 6px;
+}
+
+/* Mono label */
+.mono-label {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: #64748B;
+}
+
 /* Pagination */
 .pagination {
   display: flex;

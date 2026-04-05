@@ -1,23 +1,32 @@
 import numpy as np
-import copy
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-# 9 authorized shift patterns, each 9 hours
-SHIFTS = [
-    {"id": "S07", "start": 7, "hours": list(range(7, 16))},
-    {"id": "S08", "start": 8, "hours": list(range(8, 17))},
-    {"id": "S09", "start": 9, "hours": list(range(9, 18))},
-    {"id": "S10", "start": 10, "hours": list(range(10, 19))},
-    {"id": "S11", "start": 11, "hours": list(range(11, 20))},
-    {"id": "S14", "start": 14, "hours": list(range(14, 23))},
-    {"id": "S16", "start": 16, "hours": [(16 + i) % 24 for i in range(9)]},  # 16-00
-    {"id": "S18", "start": 18, "hours": [(18 + i) % 24 for i in range(9)]},  # 18-02
-    {"id": "S20", "start": 20, "hours": [(20 + i) % 24 for i in range(9)]},  # 20-04
+# English shifts (9 shifts, each 9 hours)
+ENGLISH_SHIFTS = [
+    {"id": "E05", "label": "05:00-14:00", "hours": list(range(5, 14))},
+    {"id": "E07", "label": "07:00-16:00", "hours": list(range(7, 16))},
+    {"id": "E08", "label": "08:00-17:00", "hours": list(range(8, 17))},
+    {"id": "E09", "label": "09:00-18:00", "hours": list(range(9, 18))},
+    {"id": "E11", "label": "11:00-20:00", "hours": list(range(11, 20))},
+    {"id": "E14", "label": "14:00-23:00", "hours": list(range(14, 23))},
+    {"id": "E16", "label": "16:00-01:00", "hours": [(16 + i) % 24 for i in range(9)]},
+    {"id": "E18", "label": "18:00-03:00", "hours": [(18 + i) % 24 for i in range(9)]},
+    {"id": "E20", "label": "20:00-05:00", "hours": [(20 + i) % 24 for i in range(9)]},
 ]
 
-# Default off-day profiles
+# Language shifts (5 shifts, each 9 hours)
+LANGUAGE_SHIFTS = [
+    {"id": "L07", "label": "07:00-16:00", "hours": list(range(7, 16))},
+    {"id": "L08", "label": "08:00-17:00", "hours": list(range(8, 17))},
+    {"id": "L09", "label": "09:00-18:00", "hours": list(range(9, 18))},
+    {"id": "L10", "label": "10:00-19:00", "hours": list(range(10, 19))},
+    {"id": "L11", "label": "11:00-20:00", "hours": list(range(11, 20))},
+]
+
+ALL_SHIFTS = ENGLISH_SHIFTS + LANGUAGE_SHIFTS
+
 DEFAULT_OFF_DAY_PROFILES = [
     {"off_days": ["Saturday", "Sunday"], "count": 108},
     {"off_days": ["Sunday", "Monday"], "count": 26},
@@ -39,15 +48,13 @@ def build_agents(off_day_profiles=None):
             agents.append({
                 "id": f"AGT-{agent_id:03d}",
                 "off_days": set(profile["off_days"]),
-                "schedule": {}  # day -> shift_id
+                "schedule": {},
             })
             agent_id += 1
     return agents
 
 
-def parse_requirements(english_data: Dict, language_data: Dict) -> Dict[str, np.ndarray]:
-    """Build combined requirement arrays. Each is shape (24,) per day."""
-    combined = {}
+def parse_requirements(english_data: Dict, language_data: Dict):
     english_by_day = {}
     language_by_day = {}
     for day in DAYS:
@@ -59,12 +66,10 @@ def parse_requirements(english_data: Dict, language_data: Dict) -> Dict[str, np.
             lang[hour] = float(language_data.get(day, {}).get(hour_key, 0))
         english_by_day[day] = eng
         language_by_day[day] = lang
-        combined[day] = eng + lang
-    return combined, english_by_day, language_by_day
+    return english_by_day, language_by_day
 
 
 def score_shift(shift: Dict, requirement: np.ndarray, coverage: np.ndarray, volume: np.ndarray) -> float:
-    """Score a shift based on gap coverage (primary) and volume buffer (secondary)."""
     primary = 0.0
     secondary = 0.0
     for h in shift["hours"]:
@@ -76,15 +81,14 @@ def score_shift(shift: Dict, requirement: np.ndarray, coverage: np.ndarray, volu
 
 
 def run_scheduler(english_data: Dict, language_data: Dict, off_day_profiles=None) -> Dict:
-    """Run the greedy scheduling algorithm."""
-    combined, english_by_day, language_by_day = parse_requirements(english_data, language_data)
+    english_by_day, language_by_day = parse_requirements(english_data, language_data)
     agents = build_agents(off_day_profiles)
 
-    # For each day, run the greedy assignment
     for day in DAYS:
-        requirement = combined[day]
-        coverage = np.zeros(24, dtype=float)
-        volume = requirement.copy()  # raw volume for buffer scoring
+        eng_req = english_by_day[day]
+        lang_req = language_by_day[day]
+        eng_coverage = np.zeros(24, dtype=float)
+        lang_coverage = np.zeros(24, dtype=float)
 
         available_agents = [a for a in agents if day not in a["off_days"]]
 
@@ -92,77 +96,124 @@ def run_scheduler(english_data: Dict, language_data: Dict, off_day_profiles=None
             best_shift = None
             best_score = -1.0
 
-            for shift in SHIFTS:
-                s = score_shift(shift, requirement, coverage, volume)
+            # Score English shifts against English requirement
+            for shift in ENGLISH_SHIFTS:
+                s = score_shift(shift, eng_req, eng_coverage, eng_req)
+                if s > best_score:
+                    best_score = s
+                    best_shift = shift
+
+            # Score Language shifts against Language requirement
+            for shift in LANGUAGE_SHIFTS:
+                s = score_shift(shift, lang_req, lang_coverage, lang_req)
                 if s > best_score:
                     best_score = s
                     best_shift = shift
 
             if best_shift is not None:
                 agent["schedule"][day] = best_shift["id"]
-                for h in best_shift["hours"]:
-                    coverage[h] += 1.0
+                # Update the correct project's coverage
+                if best_shift["id"].startswith("E"):
+                    for h in best_shift["hours"]:
+                        eng_coverage[h] += 1.0
+                else:
+                    for h in best_shift["hours"]:
+                        lang_coverage[h] += 1.0
 
-    # Build results
     shiftwise = build_shiftwise(agents)
-    gap_analysis = build_gap_analysis(agents, combined)
+    gap_analysis = build_gap_analysis(agents, english_by_day, language_by_day)
     roster = build_roster(agents)
-    sla = build_sla(agents, english_by_day, language_by_day, combined)
+    sla = build_sla(agents, english_by_day, language_by_day)
 
     return {
         "shiftwise": shiftwise,
         "gap_analysis": gap_analysis,
         "roster": roster,
         "sla": sla,
-        "summary": build_summary(agents, combined)
+        "summary": build_summary(agents),
     }
 
 
 def build_shiftwise(agents: List[Dict]) -> List[Dict]:
-    """Count agents per shift per day."""
     rows = []
-    for shift in SHIFTS:
-        row = {"shift_id": shift["id"], "start": f"{shift['start']:02d}:00",
-               "hours": f"{shift['hours'][0]:02d}:00-{shift['hours'][-1]:02d}:59"}
+    # English section
+    for shift in ENGLISH_SHIFTS:
+        row = {"shift_id": shift["id"], "project": "English", "label": shift["label"]}
         for day in DAYS:
-            count = sum(1 for a in agents if a["schedule"].get(day) == shift["id"])
-            row[day] = count
+            row[day] = sum(1 for a in agents if a["schedule"].get(day) == shift["id"])
         row["total"] = sum(row[d] for d in DAYS)
         rows.append(row)
-
-    # Add totals row
-    total_row = {"shift_id": "TOTAL", "start": "", "hours": ""}
+    # English subtotal
+    eng_total = {"shift_id": "ENG_TOTAL", "project": "English", "label": "Subtotal"}
     for day in DAYS:
-        total_row[day] = sum(r[day] for r in rows)
-    total_row["total"] = sum(total_row[d] for d in DAYS)
-    rows.append(total_row)
+        eng_total[day] = sum(r[day] for r in rows)
+    eng_total["total"] = sum(eng_total[d] for d in DAYS)
+    rows.append(eng_total)
+
+    # Language section
+    lang_rows = []
+    for shift in LANGUAGE_SHIFTS:
+        row = {"shift_id": shift["id"], "project": "Language", "label": shift["label"]}
+        for day in DAYS:
+            row[day] = sum(1 for a in agents if a["schedule"].get(day) == shift["id"])
+        row["total"] = sum(row[d] for d in DAYS)
+        lang_rows.append(row)
+    rows.extend(lang_rows)
+    # Language subtotal
+    lang_total = {"shift_id": "LANG_TOTAL", "project": "Language", "label": "Subtotal"}
+    for day in DAYS:
+        lang_total[day] = sum(r[day] for r in lang_rows)
+    lang_total["total"] = sum(lang_total[d] for d in DAYS)
+    rows.append(lang_total)
+
+    # Grand total
+    grand = {"shift_id": "GRAND_TOTAL", "project": "All", "label": "Grand Total"}
+    for day in DAYS:
+        grand[day] = eng_total[day] + lang_total[day]
+    grand["total"] = eng_total["total"] + lang_total["total"]
+    rows.append(grand)
     return rows
 
 
-def build_gap_analysis(agents: List[Dict], combined: Dict) -> List[Dict]:
-    """Build hour-by-hour gap analysis for each day."""
+def _get_shift_by_id(shift_id):
+    for s in ALL_SHIFTS:
+        if s["id"] == shift_id:
+            return s
+    return None
+
+
+def build_gap_analysis(agents, english_by_day, language_by_day) -> List[Dict]:
     rows = []
     for hour in range(24):
         row = {"interval": f"{hour:02d}:00"}
         for day in DAYS:
-            required = combined[day][hour]
-            deployed = 0
+            eng_req = english_by_day[day][hour]
+            lang_req = language_by_day[day][hour]
+            eng_deployed = 0
+            lang_deployed = 0
             for a in agents:
-                shift_id = a["schedule"].get(day)
-                if shift_id:
-                    shift = next(s for s in SHIFTS if s["id"] == shift_id)
-                    if hour in shift["hours"]:
-                        deployed += 1
-            gap = deployed - required
-            row[f"{day}_required"] = int(required)
-            row[f"{day}_deployed"] = deployed
-            row[f"{day}_gap"] = round(gap, 1)
+                sid = a["schedule"].get(day)
+                if sid:
+                    shift = _get_shift_by_id(sid)
+                    if shift and hour in shift["hours"]:
+                        if sid.startswith("E"):
+                            eng_deployed += 1
+                        else:
+                            lang_deployed += 1
+            row[f"{day}_eng_req"] = int(eng_req)
+            row[f"{day}_eng_deployed"] = eng_deployed
+            row[f"{day}_eng_gap"] = round(eng_deployed - eng_req, 1)
+            row[f"{day}_lang_req"] = int(lang_req)
+            row[f"{day}_lang_deployed"] = lang_deployed
+            row[f"{day}_lang_gap"] = round(lang_deployed - lang_req, 1)
+            row[f"{day}_total_req"] = int(eng_req + lang_req)
+            row[f"{day}_total_deployed"] = eng_deployed + lang_deployed
+            row[f"{day}_total_gap"] = round((eng_deployed + lang_deployed) - (eng_req + lang_req), 1)
         rows.append(row)
     return rows
 
 
 def build_roster(agents: List[Dict]) -> List[Dict]:
-    """Build the agent roster table."""
     rows = []
     for a in agents:
         row = {
@@ -175,43 +226,38 @@ def build_roster(agents: List[Dict]) -> List[Dict]:
     return rows
 
 
-def build_sla(agents, english_by_day, language_by_day, combined) -> Dict:
-    """Calculate SLA metrics per project per day."""
+def build_sla(agents, english_by_day, language_by_day) -> Dict:
     daily_sla = []
     for day in DAYS:
         eng_req = english_by_day[day]
         lang_req = language_by_day[day]
-        total_req = combined[day]
 
-        # Calculate deployed coverage per hour
-        deployed = np.zeros(24)
+        eng_deployed = np.zeros(24)
+        lang_deployed = np.zeros(24)
         for a in agents:
-            shift_id = a["schedule"].get(day)
-            if shift_id:
-                shift = next(s for s in SHIFTS if s["id"] == shift_id)
-                for h in shift["hours"]:
-                    deployed[h] += 1
+            sid = a["schedule"].get(day)
+            if sid:
+                shift = _get_shift_by_id(sid)
+                if shift:
+                    for h in shift["hours"]:
+                        if sid.startswith("E"):
+                            eng_deployed[h] += 1
+                        else:
+                            lang_deployed[h] += 1
 
-        # Proportional split
-        eng_met = np.zeros(24)
-        lang_met = np.zeros(24)
-        for h in range(24):
-            if total_req[h] > 0:
-                ratio_eng = eng_req[h] / total_req[h]
-                ratio_lang = lang_req[h] / total_req[h]
-                actual = min(deployed[h], total_req[h])
-                eng_met[h] = actual * ratio_eng
-                lang_met[h] = actual * ratio_lang
-            # If requirement is 0 but agents deployed, that's extra coverage (no SLA impact)
+        eng_met = np.minimum(eng_deployed, eng_req)
+        lang_met = np.minimum(lang_deployed, lang_req)
 
         total_eng_req = eng_req.sum()
         total_lang_req = lang_req.sum()
         total_eng_met = eng_met.sum()
         total_lang_met = lang_met.sum()
-        total_combined_req = total_req.sum()
+
         eng_sla = (total_eng_met / total_eng_req * 100) if total_eng_req > 0 else 100.0
         lang_sla = (total_lang_met / total_lang_req * 100) if total_lang_req > 0 else 100.0
-        combined_sla = ((total_eng_met + total_lang_met) / total_combined_req * 100) if total_combined_req > 0 else 100.0
+        combined_req = total_eng_req + total_lang_req
+        combined_met = total_eng_met + total_lang_met
+        combined_sla = (combined_met / combined_req * 100) if combined_req > 0 else 100.0
 
         daily_sla.append({
             "day": day,
@@ -221,58 +267,60 @@ def build_sla(agents, english_by_day, language_by_day, combined) -> Dict:
             "language_required": round(total_lang_req, 1),
             "language_met": round(total_lang_met, 1),
             "language_sla": round(lang_sla, 2),
-            "combined_required": round(total_combined_req, 1),
-            "combined_met": round(total_eng_met + total_lang_met, 1),
+            "combined_required": round(combined_req, 1),
+            "combined_met": round(combined_met, 1),
             "combined_sla": round(combined_sla, 2),
-            "total_deployed": int(deployed.sum()),
+            "eng_deployed_total": int(eng_deployed.sum()),
+            "lang_deployed_total": int(lang_deployed.sum()),
         })
 
-    # Hourly breakdown for charts
+    # Hourly breakdown
     hourly_sla = []
     for day in DAYS:
         eng_req = english_by_day[day]
         lang_req = language_by_day[day]
-        total_req = combined[day]
-        deployed = np.zeros(24)
+        eng_deployed = np.zeros(24)
+        lang_deployed = np.zeros(24)
         for a in agents:
-            shift_id = a["schedule"].get(day)
-            if shift_id:
-                shift = next(s for s in SHIFTS if s["id"] == shift_id)
-                for h in shift["hours"]:
-                    deployed[h] += 1
+            sid = a["schedule"].get(day)
+            if sid:
+                shift = _get_shift_by_id(sid)
+                if shift:
+                    for h in shift["hours"]:
+                        if sid.startswith("E"):
+                            eng_deployed[h] += 1
+                        else:
+                            lang_deployed[h] += 1
         for h in range(24):
-            eng_m = 0
-            lang_m = 0
-            if total_req[h] > 0:
-                ratio_eng = eng_req[h] / total_req[h]
-                ratio_lang = lang_req[h] / total_req[h]
-                actual = min(deployed[h], total_req[h])
-                eng_m = actual * ratio_eng
-                lang_m = actual * ratio_lang
             hourly_sla.append({
                 "day": day,
                 "hour": f"{h:02d}:00",
-                "english_req": int(eng_req[h]),
-                "english_met": round(eng_m, 1),
-                "language_req": int(lang_req[h]),
-                "language_met": round(lang_m, 1),
-                "total_req": int(total_req[h]),
-                "deployed": int(deployed[h]),
+                "eng_req": int(eng_req[h]),
+                "eng_deployed": int(eng_deployed[h]),
+                "eng_met": int(min(eng_deployed[h], eng_req[h])),
+                "lang_req": int(lang_req[h]),
+                "lang_deployed": int(lang_deployed[h]),
+                "lang_met": int(min(lang_deployed[h], lang_req[h])),
+                "total_req": int(eng_req[h] + lang_req[h]),
+                "total_deployed": int(eng_deployed[h] + lang_deployed[h]),
             })
 
     return {"daily": daily_sla, "hourly": hourly_sla}
 
 
-def build_summary(agents, combined) -> Dict:
-    """Build overall summary stats."""
-    total_shifts_assigned = sum(1 for a in agents for d in DAYS if a["schedule"].get(d))
+def build_summary(agents) -> Dict:
+    total_eng = sum(1 for a in agents for d in DAYS if a["schedule"].get(d, "").startswith("E"))
+    total_lang = sum(1 for a in agents for d in DAYS if a["schedule"].get(d, "").startswith("L"))
     available_by_day = {}
     for day in DAYS:
         available_by_day[day] = sum(1 for a in agents if day not in a["off_days"])
 
     return {
         "total_agents": len(agents),
-        "total_shifts_assigned": total_shifts_assigned,
+        "total_shifts_assigned": total_eng + total_lang,
+        "english_shifts": total_eng,
+        "language_shifts": total_lang,
+        "english_patterns": len(ENGLISH_SHIFTS),
+        "language_patterns": len(LANGUAGE_SHIFTS),
         "available_by_day": available_by_day,
-        "shift_patterns": len(SHIFTS),
     }
