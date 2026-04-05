@@ -1,0 +1,113 @@
+{
+  "theme": "LIGHT",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "vibe": "Objective, rigid, functional, technical, precise.",
+  "fonts": {
+    "heading": "IBM Plex Sans",
+    "body": "IBM Plex Sans",
+    "mono": "IBM Plex Mono",
+    "fallback": "sans-serif"
+  },
+  "typography_rules": {
+    "h1": "text-4xl sm:text-5xl font-black tracking-tighter text-slate-900 leading-tight",
+    "h2": "text-2xl sm:text-3xl font-bold tracking-tight text-slate-900",
+    "h3": "text-xl sm:text-2xl font-bold tracking-tight text-slate-900",
+    "h4": "text-lg font-semibold tracking-tight text-slate-800",
+    "body": "text-base text-slate-700 leading-relaxed font-normal",
+    "data_metric": "text-3xl sm:text-4xl font-mono font-medium tracking-tight text-slate-900",
+    "label_overline": "text-xs font-mono font-bold uppercase tracking-[0.2em] text-slate-500",
+    "general": "Do not center align unless absolutely necessary. Left-align text and inputs. Right-align numerical data in tables."
+  },
+  "colors": {
+    "background": "#FFFFFF",
+    "foreground": "#0F172A",
+    "primary": {
+      "DEFAULT": "#0033CC",
+      "hover": "#002299",
+      "text": "#FFFFFF"
+    },
+    "secondary": {
+      "DEFAULT": "#F8FAFC",
+      "hover": "#F1F5F9",
+      "text": "#0F172A"
+    },
+    "accent": {
+      "red": "#FF0000",
+      "blue": "#0033CC",
+      "yellow": "#FFCC00",
+      "green": "#00C853"
+    },
+    "muted": {
+      "DEFAULT": "#F1F5F9",
+      "foreground": "#64748B"
+    },
+    "border": "#E2E8F0",
+    "focus_ring": "#0033CC"
+  },
+  "spacing_and_layout": {
+    "grid_mode": "Control Room Grid",
+    "density": "Tight density for dashboards. Base grid gap: gap-4 or gap-6.",
+    "container_padding": "p-6",
+    "section_spacing": "py-12",
+    "alignment": "Strict left-alignment for text. Right-alignment for numbers in tables.",
+    "structure": "Sidebar (collapsible or fixed) + Main Content Area. Use standard Tailwind grids (grid-cols-12)."
+  },
+  "surfaces": {
+    "cards": "bg-white border border-slate-200 rounded-none shadow-none",
+    "headers": "bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 z-50",
+    "inputs": "bg-white border border-slate-300 rounded-none focus:border-[#0033CC] focus:ring-1 focus:ring-[#0033CC] shadow-sm transition-colors",
+    "buttons": "rounded-none font-semibold uppercase tracking-wider text-sm transition-colors shadow-none"
+  },
+  "components": {
+    "tables": {
+      "style": "Dense, text-sm, border-collapse, sticky header.",
+      "header": "bg-slate-50 text-slate-700 font-semibold border-b-2 border-slate-200",
+      "row": "border-b border-slate-100 hover:bg-slate-50 transition-colors",
+      "cell": "py-2 px-4 whitespace-nowrap",
+      "numeric_cell": "text-right font-mono"
+    },
+    "charts": {
+      "library": "Recharts or Shadcn Charts",
+      "style": "Minimalist axes, clear tooltips. Use Signal Red for deficits/gaps, International Klein Blue for supply/coverage.",
+      "types": "Line charts for Gap Analysis over intervals, Bar charts for Shiftwise Count."
+    },
+    "badges": {
+      "style": "rounded-none px-2 py-0.5 text-xs font-mono font-bold uppercase",
+      "success": "bg-green-100 text-green-800 border border-green-200",
+      "warning": "bg-yellow-100 text-yellow-800 border border-yellow-200",
+      "error": "bg-red-100 text-red-800 border border-red-200",
+      "info": "bg-blue-100 text-blue-800 border border-blue-200"
+    }
+  },
+  "motion": {
+    "philosophy": "Utilitarian and rapid. No bouncy effects. State changes only.",
+    "hover": "Instant color swaps or subtle 150ms opacity fades.",
+    "transitions": "transition-colors duration-150 ease-in-out"
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "style": "Regular or Bold weight, technical, clear.",
+    "installation": "yarn add @phosphor-icons/react"
+  },
+  "media": {
+    "abstract_background_url": {
+      "url": "https://images.unsplash.com/photo-1764258560063-d14eea44de4e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2OTV8MHwxfHNlYXJjaHwxfHxtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBkYXRhJTIwbGluZXN8ZW58MHx8fHwxNzc1Mzc0Njg2fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Abstract pattern of wavy grey lines on white background",
+      "usage": "Use sparingly as a watermark or empty-state background if visual interest is needed without cluttering the data."
+    }
+  },
+  "accessibility_and_testing": {
+    "contrast": "Ensure minimum 4.5:1 ratio for all text.",
+    "testing_ids": "All interactive elements (buttons, inputs, tabs, table rows) MUST include `data-testid` attribute in kebab-case (e.g., `data-testid=\"upload-csv-button\"`).",
+    "focus": "focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#0033CC]"
+  },
+  "instructions_to_main_agent": [
+    "Install `ibm-plex` fonts or import via Google Fonts: `@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@300;400;500;600;700;800&display=swap');` in CSS.",
+    "Use raw HTML/Tailwind for structural layout and Shadcn UI components for complex interactions.",
+    "Customize Shadcn components by removing rounded corners (`rounded-none`) and enforcing harsh borders.",
+    "For tables with massive data (Agent Roster, 212 rows), ensure horizontal scroll and sticky headers.",
+    "SLA Calculation view should highlight metrics clearly using `font-mono`.",
+    "Use Phosphor icons for all iconography.",
+    "Strictly follow the `data-testid` convention."
+  ]
+}
